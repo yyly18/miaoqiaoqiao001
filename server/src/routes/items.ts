@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { pinyin } from 'pinyin-pro';
-import type { Item, ItemCategory, ItemStatus } from '../../../shared/types.js';
+import type { Item, ItemCategory, ItemStatus, DogSearchResult } from '../../../shared/types.js';
 
 const router = Router();
 
@@ -80,10 +80,87 @@ const MOCK_ITEMS: ItemWithAliases[] = [
     quantity: 10,
     unit: '袋',
     isControlled: false,
+    dogId: 'K-027',
     lastVerifiedAt: '2026-03-21T07:00:00Z',
     lastVerifiedBy: 'user3',
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-03-21T07:00:00Z',
+    pinyinFull: '',
+    pinyinInitials: '',
+  },
+  {
+    id: '7',
+    name: 'K-027健康档案',
+    aliases: ['27号健康档案', 'K027档案'],
+    category: 'consumable',
+    status: 'in_stock',
+    zoneId: 'lab',
+    locationDetail: '实验室 - 档案柜 - K区第3格',
+    quantity: 1,
+    unit: '份',
+    isControlled: false,
+    dogId: 'K-027',
+    lastVerifiedAt: '2026-03-18T09:00:00Z',
+    lastVerifiedBy: 'user3',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-03-18T09:00:00Z',
+    pinyinFull: '',
+    pinyinInitials: '',
+  },
+  {
+    id: '8',
+    name: 'K-027专属标签',
+    aliases: ['27号标签', 'K027标签'],
+    category: 'consumable',
+    status: 'in_stock',
+    zoneId: 'kennel',
+    locationDetail: '犬舍 - 标签架 - 第3排',
+    quantity: 5,
+    unit: '张',
+    isControlled: false,
+    dogId: 'K-027',
+    lastVerifiedAt: '2026-03-19T10:00:00Z',
+    lastVerifiedBy: 'user3',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-03-19T10:00:00Z',
+    pinyinFull: '',
+    pinyinInitials: '',
+  },
+  {
+    id: '9',
+    name: '犬粮K-031',
+    aliases: ['31号犬粮', 'K031犬粮'],
+    category: 'feed',
+    status: 'in_stock',
+    zoneId: 'kennel',
+    locationDetail: '成品间 - 冷库 - 编号K-031',
+    quantity: 8,
+    unit: '袋',
+    isControlled: false,
+    dogId: 'K-031',
+    lastVerifiedAt: '2026-03-21T07:30:00Z',
+    lastVerifiedBy: 'user3',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-03-21T07:30:00Z',
+    pinyinFull: '',
+    pinyinInitials: '',
+  },
+  {
+    id: '10',
+    name: 'K-031健康档案',
+    aliases: ['31号健康档案', 'K031档案'],
+    category: 'consumable',
+    status: 'in_use',
+    zoneId: 'lab',
+    locationDetail: '实验室 - 档案柜 - K区第5格',
+    quantity: 1,
+    unit: '份',
+    isControlled: false,
+    dogId: 'K-031',
+    lastVerifiedAt: '2026-03-20T11:00:00Z',
+    lastVerifiedBy: 'user1',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-03-20T11:00:00Z',
     pinyinFull: '',
     pinyinInitials: '',
   },
@@ -157,11 +234,14 @@ router.get('/', (req, res) => {
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const limit = Math.min(100, parseInt(req.query.limit as string) || 20);
 
+  const dogId = req.query.dogId as string | undefined;
+
   let results = MOCK_ITEMS.filter((item) => {
     if (!matchesKeyword(item, keyword)) return false;
     if (category && item.category !== category) return false;
     if (zoneId && item.zoneId !== zoneId) return false;
     if (status && item.status !== status) return false;
+    if (dogId && item.dogId !== dogId) return false;
     return true;
   });
 
@@ -169,6 +249,39 @@ router.get('/', (req, res) => {
   const data = results.slice((page - 1) * limit, page * limit).map(({ aliases, pinyinFull, pinyinInitials, ...item }) => item);
 
   res.json({ data, total, page, limit });
+});
+
+// GET /api/items/dog/:dogId — 按犬只编号查询，结果按物品类型分组
+const CATEGORY_LABELS: Record<ItemCategory, string> = {
+  feed: '定制犬粮', consumable: '健康档案/耗材', equipment: '设备',
+  tool: '工具', reagent: '试剂', controlled: '管控品',
+  office: '办公用品', spare_part: '备件',
+};
+
+router.get('/dog/:dogId', (req, res) => {
+  const dogId = req.params.dogId.toUpperCase();
+  const matched = MOCK_ITEMS.filter((i) => i.dogId?.toUpperCase() === dogId);
+
+  if (matched.length === 0) {
+    return res.status(404).json({ error: { code: 'NOT_FOUND', message: `未找到犬只 ${dogId} 的关联物品` } });
+  }
+
+  // 按 category 分组
+  const groupMap = new Map<ItemCategory, Item[]>();
+  matched.forEach(({ aliases, pinyinFull, pinyinInitials, ...item }) => {
+    if (!groupMap.has(item.category)) groupMap.set(item.category, []);
+    groupMap.get(item.category)!.push(item);
+  });
+
+  const result: DogSearchResult = {
+    dogId,
+    groups: Array.from(groupMap.entries()).map(([category, items]) => ({
+      category,
+      label: CATEGORY_LABELS[category] ?? category,
+      items,
+    })),
+  };
+  res.json(result);
 });
 
 // GET /api/items/:id — 详情

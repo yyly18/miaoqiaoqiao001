@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { PaginatedResponse, Item, SearchParams, ErrorResponse, Zone } from '@shared/types';
+import type { PaginatedResponse, Item, SearchParams, ErrorResponse, Zone, DogSearchResult } from '@shared/types';
 
 const http = axios.create({
   baseURL: '/api',
@@ -55,6 +55,12 @@ export async function getZones(): Promise<Zone[]> {
 /** 按区域或类别获取物品 */
 export async function getItemsByFilter(params: Partial<SearchParams>): Promise<PaginatedResponse<Item>> {
   const { data } = await http.get('/items', { params });
+  return data;
+}
+
+/** 按犬只编号查询，结果按类型分组 */
+export async function searchByDogId(dogId: string): Promise<DogSearchResult> {
+  const { data } = await http.get(`/items/dog/${encodeURIComponent(dogId)}`);
   return data;
 }
 

@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import itemRoutes from './routes/items.js';
+import zoneRoutes from './routes/zones.js';
 import botRoutes from './routes/bot.js';
 import { startBotScheduler } from './services/bot-scheduler.js';
 
@@ -15,6 +16,7 @@ app.use(express.json());
 
 // Routes
 app.use('/api/items', itemRoutes);
+app.use('/api/zones', zoneRoutes);
 app.use('/api/bot', botRoutes);
 
 // Health check

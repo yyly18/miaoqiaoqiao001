@@ -2,6 +2,15 @@
   <div class="map-page">
     <van-nav-bar title="厂区地图" left-arrow @click-left="$router.back()">
       <template #right>
+        <!-- 管理层专属：数据新鲜度着色模式切换 -->
+        <van-icon
+          v-if="isManager"
+          name="color"
+          size="18"
+          :color="coloringMode ? '#1976d2' : '#999'"
+          style="margin-right: 14px"
+          @click="coloringMode = !coloringMode"
+        />
         <van-icon name="search" size="18" @click="toggleSearch" />
       </template>
     </van-nav-bar>
@@ -22,14 +31,23 @@
 
     <!-- 图例 -->
     <div class="legend-bar">
-      <span v-for="zone in mapData.zones" :key="zone.id" class="legend-item">
-        <span class="legend-dot" :style="{ background: zone.color }" />
-        {{ zone.name }}
-      </span>
-      <span class="legend-sep" />
-      <span class="legend-item"><span class="legend-dot" style="background:#4caf50" />新鲜</span>
-      <span class="legend-item"><span class="legend-dot" style="background:#ff9800" />较旧</span>
-      <span class="legend-item"><span class="legend-dot" style="background:#f44336" />过期</span>
+      <!-- 默认模式：区域色图例 -->
+      <template v-if="!coloringMode">
+        <span v-for="zone in mapData.zones" :key="zone.id" class="legend-item">
+          <span class="legend-dot" :style="{ background: zone.color }" />
+          {{ zone.name }}
+        </span>
+        <span class="legend-sep" />
+      </template>
+      <!-- 着色模式激活时：显示标签提示 -->
+      <template v-else>
+        <span class="legend-item legend-mode-label">着色模式</span>
+        <span class="legend-sep" />
+      </template>
+      <!-- 数据新鲜度图例（始终显示） -->
+      <span class="legend-item"><span class="legend-dot" style="background:#4caf50" />7天内</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#ff9800" />7-30天</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#f44336" />超30天</span>
     </div>
 
     <!-- SVG 地图容器 -->
@@ -96,8 +114,9 @@
             :class="{ 'room-blink': isHighlighted(room) }"
           />
 
-          <!-- 数据新鲜度色条（底部） -->
+          <!-- 数据新鲜度色条（底部，非着色模式时始终显示） -->
           <rect
+            v-if="!coloringMode"
             :x="room.x + 4"
             :y="room.y + room.height - 5"
             :width="room.width - 8"
@@ -206,62 +225,19 @@
       <div class="scale-hint">{{ Math.round(transform.scale * 100) }}%</div>
     </div>
 
-    <!-- 房间详情弹层 -->
+    <!-- 区域状态看板弹层 -->
     <van-popup
       v-model:show="showPopup"
       position="bottom"
       round
-      :style="{ height: '58%' }"
+      :style="{ height: '72%' }"
       @closed="selectedRoomId = ''"
     >
-      <div v-if="selectedRoom" class="room-popup">
-        <div class="popup-header">
-          <span class="zone-dot" :style="{ background: zoneColor(selectedRoom.zone) }" />
-          <span class="room-title">{{ selectedRoom.name }}</span>
-          <van-tag
-            :type="statusTagType(selectedRoom.dataStatus)"
-            size="small"
-            class="status-tag"
-          >{{ statusLabel(selectedRoom.dataStatus) }}</van-tag>
-        </div>
-        <div class="room-zone-name">{{ zoneName(selectedRoom.zone) }}</div>
-
-        <van-divider style="margin: 10px 0" />
-
-        <div v-if="selectedRoom.restricted" class="restricted-notice">
-          <van-icon name="lock" color="#c62828" />
-          <span>该区域为受限区域，物品信息仅限授权人员查看</span>
-        </div>
-
-        <template v-else>
-          <div class="items-header">
-            <span class="items-label">区域物品</span>
-            <span class="items-count">共 {{ selectedRoom.items.length }} 件</span>
-          </div>
-          <van-empty
-            v-if="selectedRoom.items.length === 0"
-            description="暂无物品记录"
-            image-size="60"
-          />
-          <van-cell-group v-else inset>
-            <van-cell
-              v-for="item in selectedRoom.items"
-              :key="item.id"
-              :title="item.name"
-              :label="item.location"
-              is-link
-              @click="goToItem(item.id)"
-            >
-              <template #right-icon>
-                <van-tag :type="itemTagType(item.status)" plain size="small" style="margin-right:8px">
-                  {{ item.status }}
-                </van-tag>
-                <van-icon name="arrow" />
-              </template>
-            </van-cell>
-          </van-cell-group>
-        </template>
-      </div>
+      <RegionDashboard
+        v-if="selectedRoom"
+        :room="selectedRoom"
+        :zone-color="zoneColor(selectedRoom.zone)"
+      />
     </van-popup>
   </div>
 </template>
@@ -270,6 +246,9 @@
 import { ref, computed, reactive, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import mapDataRaw from '@/assets/map-data.json'
+import { useAuthStore } from '@/stores/auth'
+import RegionDashboard from '@/components/RegionDashboard.vue'
+import { statusColor, statusLabel, statusTagType, itemTagType } from '@/composables/useItemStatus'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -318,6 +297,16 @@ const MAX_SCALE = 5
 
 const route = useRoute()
 const router = useRouter()
+
+// ── Auth & 管理层着色模式 ──────────────────────────────────────────────────────
+
+const authStore = useAuthStore()
+const isManager = computed(() => authStore.user?.role === 'manager')
+const coloringMode = ref(false)
+
+watch(coloringMode, val => {
+  sessionStorage.setItem('map_coloring_mode', val ? '1' : '0')
+})
 
 // ── UI state ──────────────────────────────────────────────────────────────────
 
@@ -530,6 +519,11 @@ function jumpToRoom(room: Room) {
 onMounted(() => {
   fitToContainer()
 
+  // 恢复管理层着色模式偏好
+  if (isManager.value) {
+    coloringMode.value = sessionStorage.getItem('map_coloring_mode') === '1'
+  }
+
   // Handle query params from Search view: ?highlight=roomId or ?q=keyword
   const highlight = route.query.highlight as string | undefined
   const q         = route.query.q         as string | undefined
@@ -555,7 +549,8 @@ function zoneName(zoneId: string): string {
 }
 
 function roomFill(room: Room): string {
-  const base = zoneColor(room.zone)
+  // 着色模式：用数据新鲜度颜色覆盖区域色
+  const base = coloringMode.value ? statusColor(room.dataStatus) : zoneColor(room.zone)
   if (isHighlighted(room)) return base
   if (isSelected(room))    return base + 'dd'
   return base + 'aa'
@@ -569,30 +564,8 @@ function labelFontSize(room: Room): number {
   return Math.min(Math.max(maxByWidth, 5), maxByHeight, 13)
 }
 
-function statusColor(s: string): string {
-  if (s === 'fresh')   return '#4caf50'
-  if (s === 'stale')   return '#ff9800'
-  return '#f44336'
-}
-
-function statusLabel(s: string): string {
-  if (s === 'fresh')   return '数据新鲜'
-  if (s === 'stale')   return '数据较旧'
-  return '数据过期'
-}
-
-function statusTagType(s: string): string {
-  if (s === 'fresh')   return 'success'
-  if (s === 'stale')   return 'warning'
-  return 'danger'
-}
-
-function itemTagType(s: string): string {
-  if (s === '在库')   return 'success'
-  if (s === '借出')   return 'warning'
-  if (s === '使用中') return 'primary'
-  return 'default'
-}
+// 保留供模板内 v-if 或调试使用（已从 composable 导入）
+// statusColor, statusLabel, statusTagType, itemTagType 均已从 @/composables/useItemStatus 导入
 </script>
 
 <style scoped>
@@ -641,6 +614,15 @@ function itemTagType(s: string): string {
   flex-shrink: 0;
 }
 
+/* 着色模式激活标签 */
+.legend-mode-label {
+  background: #e3f0ff;
+  color: #1976d2;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 500;
+}
+
 /* Map container */
 .map-container {
   flex: 1;
@@ -664,6 +646,11 @@ function itemTagType(s: string): string {
 
 .room-group:active rect:first-child {
   opacity: 0.75;
+}
+
+/* 着色模式切换时房间平滑过渡 */
+.room-group rect:first-child {
+  transition: fill 0.3s ease;
 }
 
 /* Blink animation for highlighted room */
@@ -745,70 +732,5 @@ function itemTagType(s: string): string {
 .slide-down-leave-to {
   opacity: 0;
   transform: translateY(-100%);
-}
-
-/* Popup */
-.room-popup {
-  padding: 16px;
-  height: 100%;
-  overflow-y: auto;
-}
-
-.popup-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-
-.zone-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.room-title {
-  font-size: 18px;
-  font-weight: 600;
-  flex: 1;
-  color: #1a1a1a;
-}
-
-.status-tag {
-  flex-shrink: 0;
-}
-
-.room-zone-name {
-  font-size: 12px;
-  color: #999;
-  margin-left: 20px;
-  margin-bottom: 2px;
-}
-
-.restricted-notice {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px;
-  background: #fff3f3;
-  border-radius: 8px;
-  color: #c62828;
-  font-size: 13px;
-}
-
-.items-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 4px 8px;
-  font-size: 14px;
-  font-weight: 500;
-  color: #333;
-}
-
-.items-count {
-  font-size: 12px;
-  color: #aaa;
 }
 </style>
